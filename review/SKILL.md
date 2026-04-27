@@ -1459,16 +1459,22 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Legacy opt-out — only gates Codex passes, Claude always runs
+_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+[ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
+# Respect old opt-out
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
+echo "BACKEND: $_SO_BACKEND ($_SO_NAME)"
 echo "OLD_CFG: ${OLD_CFG:-not_set}"
 ```
 
 If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 
-**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size.
+**Auto-select tier based on diff size:**
+- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
+- **Medium (50–199 lines changed):** Run second opinion adversarial challenge (or Claude adversarial subagent if no second opinion CLI available). Jump to the "Medium tier" section.
+- **Large (200+ lines changed):** Run all remaining passes — second opinion structured review + Claude adversarial subagent + second opinion adversarial. Jump to the "Large tier" section.
 
 ---
 
@@ -1485,14 +1491,13 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 ---
 
-### Codex adversarial challenge (always runs when available)
+**If a second opinion CLI is available:** run the adversarial challenge. **If NOT available:** fall back to the Claude adversarial subagent instead.
 
-If Codex is available AND `OLD_CFG` is NOT `disabled`:
+**Second opinion adversarial:**
 
 ```bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+TMPERR_ADV=$(mktemp /tmp/so-adv-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." --effort high --web-search 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -1503,13 +1508,30 @@ cat "$TMPERR_ADV"
 Present the full output verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "$_SO_NAME authentication failed."
+- **Timeout:** "$_SO_NAME timed out after 5 minutes."
+- **Empty response:** "$_SO_NAME returned no response. Stderr: <paste relevant error>."
 
-**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing.
+On any error, fall back to the Claude adversarial subagent automatically.
 
-If Codex is NOT available: "Codex CLI not found — running Claude adversarial only. Install Codex for cross-model coverage: `npm install -g @openai/codex`"
+**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
+
+Subagent prompt:
+"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
+
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
+
+**Persist the review result:**
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "$_SO_BACKEND" if second opinion ran, "claude" if subagent ran. If both failed, do NOT persist.
+
+**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing (if second opinion CLI was used).
 
 ---
 
@@ -1517,25 +1539,24 @@ If Codex is NOT available: "Codex CLI not found — running Claude adversarial o
 
 If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
 
+**1. Second opinion structured review (if available):**
 ```bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+TMPERR=$(mktemp /tmp/so-review-XXXXXXXX)
+~/.claude/skills/gstack/bin/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
 ```
 
-Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `CODEX SAYS (code review):` header.
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `$_SO_NAME SAYS (code review):` header.
 Check for `[P1]` markers: found → `GATE: FAIL`, not found → `GATE: PASS`.
 
 If GATE is FAIL, use AskUserQuestion:
 ```
-Codex found N critical issues in the diff.
+$_SO_NAME found N critical issues in the diff.
 
 A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 ```
 
-If A: address the findings. Re-run `codex review` to verify.
+If A: address the findings. Re-run the second opinion review to verify.
 
 Read stderr for errors (same error handling as Codex adversarial above).
 
@@ -1543,15 +1564,15 @@ After stderr: `rm -f "$TMPERR"`
 
 If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
 
----
+**3. Second opinion adversarial challenge (if available):** Run `gstack-second-opinion exec` with the adversarial prompt (same as medium tier).
 
-### Persist the review result
+If no second opinion CLI is available for steps 1 and 3, note to the user: "No second opinion CLI found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install one for full 4-pass coverage: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`"
 
 After all passes complete, persist:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if second opinion CLI ran, "claude" if only Claude subagent ran. GATE = the structured review gate result ("pass"/"fail"), or "informational" if second opinion CLI was unavailable. If all passes failed, do NOT persist.
 
 ---
 
@@ -1564,9 +1585,9 @@ ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ════════════════════════════════════════════════════════════
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
-  Unique to Claude adversarial: [from subagent]
-  Unique to Codex: [from codex adversarial or code review, if ran]
-  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+  Unique to Claude adversarial: [from subagent, if ran]
+  Unique to $_SO_NAME: [from second opinion adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  $_SO_NAME ✓/✗
 ════════════════════════════════════════════════════════════
 ```
 

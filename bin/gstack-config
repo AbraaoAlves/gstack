@@ -73,6 +73,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── Model selection ──────────────────────────────────────────────────
+# second_opinion_backend: auto # auto | gemini | codex | none
+#                           #   auto   — prefer gemini if available, fall back to codex
+#                           #   gemini — force Google Gemini CLI
+#                           #   codex  — force OpenAI Codex CLI
+#                           #   none   — disable second opinions entirely
+#
+# design_provider: auto     # auto | gemini | openai
+#                           #   auto   — prefer gemini if key available, fall back to openai
+#                           #   gemini — force Google Gemini
+#                           #   openai — force OpenAI (DALL-E 3 + GPT-4o)
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
@@ -107,6 +119,8 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     gbrain_sync_mode) echo "off" ;;
     gbrain_sync_mode_prompted) echo "false" ;;
+    second_opinion_backend) echo "auto" ;;
+    design_provider) echo "auto" ;;
     *) echo "" ;;
   esac
 }
@@ -171,7 +185,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
                gstack_contributor skip_eng_review workspace_root \
-               gbrain_sync_mode gbrain_sync_mode_prompted; do
+               gbrain_sync_mode gbrain_sync_mode_prompted \
+               second_opinion_backend design_provider; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -187,7 +202,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
                gstack_contributor skip_eng_review workspace_root \
-               gbrain_sync_mode gbrain_sync_mode_prompted; do
+               gbrain_sync_mode gbrain_sync_mode_prompted \
+               second_opinion_backend design_provider; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
