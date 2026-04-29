@@ -1,10 +1,19 @@
 import { describe, test, expect, afterEach, mock } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { OpenAIProvider } from "../src/providers/openai";
 import { GeminiProvider } from "../src/providers/gemini";
 import { ProviderError } from "../src/providers/provider";
+import { getProvider, resetProvider } from "../src/providers/factory";
 
 const originalFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = originalFetch; });
+const originalEnv = { ...process.env };
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  resetProvider();
+  process.env = { ...originalEnv };
+});
 
 type FetchCall = { url: string; body: any };
 
@@ -388,5 +397,48 @@ describe("GeminiProvider", () => {
     expect(provider.supportsImageRef()).toBe(true);
     expect(provider.supportsThreading()).toBe(false);
     expect(provider.name).toBe("gemini");
+  });
+});
+
+describe("provider factory", () => {
+  function withConfig(value: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-design-provider-"));
+    fs.writeFileSync(path.join(dir, "config.yaml"), `design_provider: ${value}\n`);
+    process.env.GSTACK_HOME = dir;
+    return dir;
+  }
+
+  test("design_provider config can force Gemini", () => {
+    const dir = withConfig("gemini");
+    process.env.GEMINI_API_KEY = "gem-test";
+    process.env.OPENAI_API_KEY = "sk-test";
+    try {
+      expect(getProvider().name).toBe("gemini");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("design_provider config can force OpenAI", () => {
+    const dir = withConfig("openai");
+    process.env.GEMINI_API_KEY = "gem-test";
+    process.env.OPENAI_API_KEY = "sk-test";
+    try {
+      expect(getProvider().name).toBe("openai");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("GSTACK_DESIGN_PROVIDER env var overrides config", () => {
+    const dir = withConfig("openai");
+    process.env.GSTACK_DESIGN_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "gem-test";
+    process.env.OPENAI_API_KEY = "sk-test";
+    try {
+      expect(getProvider().name).toBe("gemini");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

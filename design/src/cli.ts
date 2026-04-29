@@ -11,7 +11,8 @@
  *
  * Provider resolution:
  *   1. GSTACK_DESIGN_PROVIDER env var ("gemini" | "openai") — explicit
- *   2. Auto-detect: prefer Gemini if a key is available, fall back to OpenAI
+ *   2. gstack-config design_provider ("auto" | "gemini" | "openai")
+ *   3. Auto-detect: prefer Gemini if a key is available, fall back to OpenAI
  *
  * Flow:
  *   1. Parse command + flags from argv
@@ -78,7 +79,8 @@ function printUsage(): void {
   console.log("                     https://aistudio.google.com/app/apikey");
   console.log("  OpenAI (legacy):   ~/.gstack/openai.json or OPENAI_API_KEY");
   console.log("                     https://platform.openai.com/api-keys");
-  console.log("\nForce provider: GSTACK_DESIGN_PROVIDER=gemini|openai");
+  console.log("\nForce provider: gstack-config set design_provider gemini|openai");
+  console.log("                or GSTACK_DESIGN_PROVIDER=gemini|openai");
   console.log("Setup:          $D setup");
 }
 
@@ -105,7 +107,7 @@ async function runSetup(): Promise<void> {
       saveGeminiKey(key);
       console.log("Gemini key saved to ~/.gstack/gemini.json (0600 permissions).");
     } else {
-      console.log("Keeping OpenAI. Set GSTACK_DESIGN_PROVIDER=openai or clear the Gemini key to force OpenAI.");
+      console.log("Keeping OpenAI. Set `gstack-config set design_provider openai` or clear the Gemini key to force OpenAI.");
     }
   } else {
     console.log("No API key found. Please enter a Gemini API key (recommended).");

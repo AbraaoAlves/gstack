@@ -3,7 +3,7 @@ name: codex
 preamble-tier: 3
 version: 2.0.0
 description: |
-  Multi-AI second opinion — three modes. Code review: independent diff review via
+  gstack multi-AI second opinion — three modes. Code review: independent diff review via
   a second AI (Codex or Gemini CLI) with pass/fail gate. Challenge: adversarial mode
   that tries to break your code. Consult: ask a different AI anything with session
   continuity for follow-ups. The "200 IQ autistic developer" second opinion.
@@ -41,8 +41,8 @@ faithfully, not summarized.
 ## Step 0: Detect second opinion backend
 
 ```bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 echo "BACKEND: $_SO_BACKEND  NAME: $_SO_NAME"
 ```
 
@@ -61,25 +61,29 @@ source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_cod
 
 ---
 
-## Step 0.5: Auth probe + version check
+## Step 0.5: Backend-specific auth probe + version check
 
-Before building expensive prompts, verify Codex has valid auth AND the installed
-CLI version isn't in the known-bad list. Sourcing `gstack-codex-probe` loads the
-shared helpers that both `/codex` and `/autoplan` use.
+Before building expensive prompts, verify the selected backend is usable. Do not run
+Codex-specific auth checks when Gemini is selected.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
-if ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
-  echo "AUTH_FAILED"
+if [ "$_SO_BACKEND" = "codex" ]; then
+  source ~/.claude/skills/gstack/bin/gstack-codex-probe
+  if ! _gstack_codex_auth_probe >/dev/null; then
+    _gstack_codex_log_event "codex_auth_failed"
+    echo "AUTH_FAILED"
+  fi
+  _gstack_codex_version_check   # warns if known-bad, non-blocking
+elif [ "$_SO_BACKEND" = "gemini" ]; then
+  gemini --version >/dev/null 2>&1 && echo "GEMINI_READY" || echo "AUTH_FAILED"
 fi
-_gstack_codex_version_check   # warns if known-bad, non-blocking
 ```
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
-"No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
+- For Codex: "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
+- For Gemini: "Gemini CLI is not ready. Run `gemini auth login` or configure your Google API key, then re-run this skill."
 
 If the version check printed a `WARN:` line, pass it through to the user verbatim
 (non-blocking — Codex may still work, but the user should upgrade).
@@ -131,7 +135,7 @@ Note: reasoning effort flags only apply to Codex backend. They are silently igno
 
 ## Filesystem Boundary
 
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
+All prompts sent to the second opinion CLI MUST be prefixed with this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
@@ -153,13 +157,13 @@ TMPERR=$(mktemp /tmp/so-err-XXXXXX.txt)
 as the prompt argument, even without custom instructions. If the user provided custom
 instructions, append them after the boundary separated by a newline:
 ```bash
-~/.claude/skills/gstack/bin/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
 ```
 
 Use `timeout: 300000` on the Bash call. If the user provided custom instructions
 (e.g., `/codex review focus on security`), pass them as the last argument:
 ```bash
-~/.claude/skills/gstack/bin/gstack-second-opinion review --base <base> --effort high --web-search "focus on security" 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion review --base <base> --effort high --web-search "focus on security" 2>"$TMPERR"
 ```
 
 3. Capture the output. Then read stderr:
@@ -238,7 +242,7 @@ Review the changes on this branch against the base branch. Run `git diff origin/
 2. Run the second opinion (5-minute timeout):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "<prompt>" --effort high --web-search 2>/dev/null
+$GSTACK_BIN/gstack-second-opinion exec "<prompt>" --effort high --web-search 2>/dev/null
 ```
 
 Use `timeout: 300000` on the Bash call.
@@ -320,12 +324,12 @@ THE PLAN:
 
 For a **new session:**
 ```bash
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "<prompt>" --effort medium --web-search 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion exec "<prompt>" --effort medium --web-search 2>"$TMPERR"
 ```
 
 For a **resumed session** (user chose "Continue"):
 ```bash
-~/.claude/skills/gstack/bin/gstack-second-opinion resume "<prompt>" --effort medium 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion resume "<prompt>" --effort medium 2>"$TMPERR"
 ```
 
 5. If using Codex backend with `--json` output, capture session ID from the streamed output.

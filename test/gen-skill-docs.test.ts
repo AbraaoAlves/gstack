@@ -1182,12 +1182,12 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
   });
 
-  test('contains codex exec invocation', () => {
-    expect(content).toContain('codex exec');
+  test('contains second-opinion dispatcher invocation', () => {
+    expect(content).toContain('gstack-second-opinion exec');
   });
 
   test('contains opt-in AskUserQuestion text', () => {
-    expect(content).toContain('second opinion from an independent AI perspective');
+    expect(content).toContain('second opinion from a different AI model');
   });
 
   test('contains cross-model synthesis instructions', () => {
@@ -1196,13 +1196,13 @@ describe('CODEX_SECOND_OPINION resolver', () => {
   });
 
   test('contains Claude subagent fallback', () => {
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
+    expect(content).toContain('SO_NOT_AVAILABLE');
     expect(content).toContain('Agent tool');
     expect(content).toContain('SECOND OPINION (Claude subagent)');
   });
 
   test('contains premise revision check', () => {
-    expect(content).toContain('Codex challenged premise');
+    expect(content).toContain('Second opinion challenged premise');
   });
 
   test('contains error handling for auth, timeout, and empty', () => {
@@ -1224,25 +1224,13 @@ describe('CODEX_SECOND_OPINION resolver', () => {
 
 // --- Codex filesystem boundary tests ---
 
-describe('Codex filesystem boundary', () => {
-  // Skills that call codex exec/review and should contain boundary text
-  const CODEX_CALLING_SKILLS = [
-    'codex',         // /codex skill — 3 modes
-    'autoplan',      // /autoplan — CEO/design/eng voices
-    'review',        // /review — adversarial step resolver
-    'ship',          // /ship — adversarial step resolver
-    'plan-eng-review',  // outside voice resolver
-    'plan-ceo-review',  // outside voice resolver
-    'office-hours',     // second opinion resolver
-  ];
-
+describe('Second opinion filesystem boundary', () => {
   const BOUNDARY_MARKER = 'Do NOT read or execute any';
 
-  test('boundary instruction appears in all skills that call codex', () => {
-    for (const skill of CODEX_CALLING_SKILLS) {
-      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
-      expect(content).toContain(BOUNDARY_MARKER);
-    }
+  test('dispatcher enforces the boundary before calling external CLIs', () => {
+    const dispatcher = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-second-opinion'), 'utf-8');
+    expect(dispatcher).toContain(BOUNDARY_MARKER);
+    expect(dispatcher).toContain('boundary_prompt');
   });
 
   test('codex skill has Filesystem Boundary section', () => {
@@ -1251,22 +1239,16 @@ describe('Codex filesystem boundary', () => {
     expect(content).toContain('skill definitions meant for a different AI system');
   });
 
-  test('codex skill has rabbit-hole detection rule', () => {
+  test('codex skill sends prompts through second-opinion dispatcher', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Detect skill-file rabbit holes');
-    expect(content).toContain('gstack-update-check');
-    expect(content).toContain('Consider retrying');
+    expect(content).toContain('gstack-second-opinion exec');
+    expect(content).toContain('gstack-second-opinion review');
   });
 
-  test('review.ts CODEX_BOUNDARY constant is interpolated into resolver output', () => {
-    // The adversarial step resolver should include boundary text in codex exec prompts
+  test('review generated skill uses the second-opinion dispatcher for external review', () => {
     const reviewContent = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    // Boundary should appear near codex exec invocations
-    const boundaryIdx = reviewContent.indexOf(BOUNDARY_MARKER);
-    const codexExecIdx = reviewContent.indexOf('codex exec');
-    // Both must exist and boundary must come before a codex exec call
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    expect(codexExecIdx).toBeGreaterThan(-1);
+    expect(reviewContent).toContain('gstack-second-opinion exec');
+    expect(reviewContent).toContain('gstack-second-opinion review');
   });
 
   test('autoplan boundary text avoids host-specific paths for cross-host compatibility', () => {
@@ -1468,7 +1450,7 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('plan-design-review contains outside voices section', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Design Outside Voices');
-    expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('SO_AVAILABLE');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -1487,10 +1469,10 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('branches correctly per skillName — different prompts', () => {
     const planContent = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     const consultContent = fs.readFileSync(path.join(ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
-    // plan-design-review uses analytical prompt (high reasoning)
-    expect(planContent).toContain('model_reasoning_effort="high"');
-    // design-consultation uses creative prompt (medium reasoning)
-    expect(consultContent).toContain('model_reasoning_effort="medium"');
+    // plan-design-review uses analytical prompt (high effort)
+    expect(planContent).toContain('--effort high');
+    // design-consultation uses creative prompt (medium effort)
+    expect(consultContent).toContain('--effort medium');
   });
 });
 
@@ -1557,12 +1539,12 @@ describe('DESIGN_SKETCH extended with outside voices', () => {
 
 // --- Extended DESIGN_REVIEW_LITE resolver tests ---
 
-describe('DESIGN_REVIEW_LITE extended with Codex', () => {
+describe('DESIGN_REVIEW_LITE extended with second opinion', () => {
   const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
-  test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
-    expect(content).toContain('CODEX (design)');
+  test('contains second opinion design voice block', () => {
+    expect(content).toContain('Second opinion design voice');
+    expect(content).toContain('$_SO_NAME (design)');
   });
 
   test('still contains original checklist steps', () => {
