@@ -1111,8 +1111,8 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 **Binary check first:**
 
 ```bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 echo "SECOND_OPINION: $_SO_BACKEND ($_SO_NAME)"
 ```
 
@@ -1154,7 +1154,7 @@ Then add the context block and mode-appropriate instructions:
 
 ```bash
 TMPERR_OH=$(mktemp /tmp/so-oh-err-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "$(cat "$CODEX_PROMPT_FILE")" --effort high --web-search 2>"$TMPERR_OH"
+$GSTACK_BIN/gstack-second-opinion exec "$(cat "$CODEX_PROMPT_FILE")" --effort high --web-search 2>"$TMPERR_OH"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -1168,7 +1168,7 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 - **Timeout:** "$_SO_NAME timed out after 5 minutes. Skipping second opinion."
 - **Empty response:** "$_SO_NAME returned no response. Stderr: <paste relevant error>. Skipping second opinion."
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If SO_NOT_AVAILABLE (or second opinion errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -1180,7 +1180,7 @@ If the subagent fails or times out: "Second opinion unavailable. Continuing to P
 
 4. **Presentation:**
 
-If Codex ran:
+If the second opinion CLI ran:
 ```
 SECOND OPINION ($_SO_NAME):
 ════════════════════════════════════════════════════════════
@@ -1201,10 +1201,10 @@ SECOND OPINION (Claude subagent):
    - Where Claude disagrees and why
    - Whether the challenged premise changes Claude's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If the second opinion challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> Second opinion challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on the second opinion's input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).
@@ -1382,8 +1382,8 @@ The screenshot file at `/tmp/gstack-sketch.png` can be referenced by downstream 
 After the wireframe is approved, offer outside design perspectives:
 
 ```bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
@@ -1398,7 +1398,7 @@ If user chooses A, launch both voices simultaneously:
 1. **Second opinion** (via Bash):
 ```bash
 TMPERR_SKETCH=$(mktemp /tmp/so-sketch-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
+$GSTACK_BIN/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
 ```
 Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
 

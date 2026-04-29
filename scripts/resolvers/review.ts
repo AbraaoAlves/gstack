@@ -1,7 +1,7 @@
 /**
  * Cross-model review resolver
  *
- * Data sent to external review services (via Codex CLI):
+ * Data sent to external review services (via configured second opinion CLI):
  *   - Plan markdown content, repository name, branch name, review type
  * Data NOT sent:
  *   - Source code files, credentials, environment variables, git history
@@ -10,7 +10,7 @@
  * or /plan-design-review. No data is sent without user invocation.
  *
  * Review logs are stored locally at ~/.gstack/reviews/review-log.jsonl.
- * Codex CLI prompts are written to temp files to prevent shell injection.
+ * Second opinion CLI prompts are written to temp files to prevent shell injection.
  */
 import type { TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
@@ -54,13 +54,13 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and the configured second opinion CLI when available. Large diffs (200+ lines) additionally get a second opinion structured review with P1 gate. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if no second opinion CLI is available. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \\\`review\\\` or \\\`plan-eng-review\\\` with status "clean" (or \\\`skip_eng_review\\\` is \\\`true\\\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO, Design, and Codex reviews are shown for context but never block shipping
+- CEO, Design, and outside voice reviews are shown for context but never block shipping
 - If \\\`skip_eng_review\\\` config is \\\`true\\\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -266,8 +266,8 @@ export function generateCodexSecondOpinion(ctx: TemplateContext): string {
 **Binary check first:**
 
 \`\`\`bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 echo "SECOND_OPINION: $_SO_BACKEND ($_SO_NAME)"
 \`\`\`
 
@@ -309,7 +309,7 @@ Then add the context block and mode-appropriate instructions:
 
 \`\`\`bash
 TMPERR_OH=$(mktemp /tmp/so-oh-err-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "$(cat "$CODEX_PROMPT_FILE")" --effort high --web-search 2>"$TMPERR_OH"
+$GSTACK_BIN/gstack-second-opinion exec "$(cat "$CODEX_PROMPT_FILE")" --effort high --web-search 2>"$TMPERR_OH"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -323,7 +323,7 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 - **Timeout:** "$_SO_NAME timed out after 5 minutes. Skipping second opinion."
 - **Empty response:** "$_SO_NAME returned no response. Stderr: <paste relevant error>. Skipping second opinion."
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If SO_NOT_AVAILABLE (or second opinion errored):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -335,7 +335,7 @@ If the subagent fails or times out: "Second opinion unavailable. Continuing to P
 
 4. **Presentation:**
 
-If Codex ran:
+If the second opinion CLI ran:
 \`\`\`
 SECOND OPINION ($_SO_NAME):
 ════════════════════════════════════════════════════════════
@@ -356,10 +356,10 @@ SECOND OPINION (Claude subagent):
    - Where Claude disagrees and why
    - Whether the challenged premise changes Claude's recommendation
 
-6. **Premise revision check:** If Codex challenged an agreed premise, use AskUserQuestion:
+6. **Premise revision check:** If the second opinion challenged an agreed premise, use AskUserQuestion:
 
-> Codex challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
-> A) Revise this premise based on Codex's input
+> Second opinion challenged premise #{N}: "{premise text}". Their argument: "{reasoning}".
+> A) Revise this premise based on the second opinion's input
 > B) Keep the original premise — proceed to alternatives
 
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
@@ -418,7 +418,7 @@ export function generateAdversarialStep(ctx: TemplateContext): string {
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 
-Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+Every diff gets adversarial review from Claude plus the configured second opinion CLI when available. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size and tool availability:**
 
@@ -426,17 +426,17 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 # Respect old opt-out
-OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+OLD_CFG=$($GSTACK_BIN/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "BACKEND: $_SO_BACKEND ($_SO_NAME)"
 echo "OLD_CFG: \${OLD_CFG:-not_set}"
 \`\`\`
 
-If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
+If \`OLD_CFG\` is \`disabled\`: skip second opinion CLI passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 
 **Auto-select tier based on diff size:**
 - **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
@@ -464,7 +464,7 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/so-adv-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." --effort high --web-search 2>"$TMPERR_ADV"
+$GSTACK_BIN/gstack-second-opinion exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." --effort high --web-search 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -481,7 +481,7 @@ Present the full output verbatim. This is informational — it never blocks ship
 
 On any error, fall back to the Claude adversarial subagent automatically.
 
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+**Claude adversarial subagent** (fallback when the second opinion CLI is unavailable or errored):
 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
@@ -502,14 +502,14 @@ Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOU
 
 ---
 
-### Codex structured review (large diffs only, 200+ lines)
+### Second opinion structured review (large diffs only, 200+ lines)
 
-If \`DIFF_TOTAL >= 200\` AND Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
+If \`DIFF_TOTAL >= 200\` AND a second opinion CLI is available AND \`OLD_CFG\` is NOT \`disabled\`:
 
 **1. Second opinion structured review (if available):**
 \`\`\`bash
 TMPERR=$(mktemp /tmp/so-review-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`$_SO_NAME SAYS (code review):\` header.
@@ -525,11 +525,11 @@ B) Continue — review will still complete
 
 If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run the second opinion review to verify.
 
-Read stderr for errors (same error handling as Codex adversarial above).
+Read stderr for errors (same error handling as the second opinion adversarial pass above).
 
 After stderr: \`rm -f "$TMPERR"\`
 
-If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
+If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + second opinion adversarial passes provide sufficient coverage for smaller diffs.
 
 **3. Second opinion adversarial challenge (if available):** Run \`gstack-second-opinion exec\` with the adversarial prompt (same as medium tier).
 
@@ -576,8 +576,8 @@ thorough review.
 **Check tool availability:**
 
 \`\`\`bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
@@ -622,7 +622,7 @@ THE PLAN:
 
 \`\`\`bash
 TMPERR_PV=$(mktemp /tmp/so-planreview-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "<prompt>" --effort high --web-search 2>"$TMPERR_PV"
+$GSTACK_BIN/gstack-second-opinion exec "<prompt>" --effort high --web-search 2>"$TMPERR_PV"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -698,9 +698,9 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 \`\`\`
 
 Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
-SOURCE = "codex" if Codex ran, "claude" if subagent ran.
+SOURCE = "$_SO_BACKEND" if the second opinion CLI ran, "claude" if subagent ran.
 
-**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if Codex was used).
+**Cleanup:** Run \`rm -f "$TMPERR_PV"\` after processing (if the second opinion CLI was used).
 
 ---`;
 }

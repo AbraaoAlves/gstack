@@ -1273,7 +1273,7 @@ describe('Codex skill', () => {
   test('codex/SKILL.md exists and has correct frontmatter', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('name: codex');
-    expect(content).toContain('version: 1.0.0');
+    expect(content).toContain('version: 2.0.0');
     expect(content).toContain('allowed-tools:');
   });
 
@@ -1293,14 +1293,15 @@ describe('Codex skill', () => {
 
   test('codex/SKILL.md contains session continuity', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('codex-session-id');
-    expect(content).toContain('codex exec resume');
+    expect(content).toContain('second-opinion-session-id');
+    expect(content).toContain('gstack-second-opinion resume');
   });
 
-  test('codex/SKILL.md contains cost tracking', () => {
+  test('codex/SKILL.md contains backend-specific auth checks', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('tokens used');
-    expect(content).toContain('Est. cost');
+    expect(content).toContain('if [ "$_SO_BACKEND" = "codex" ]');
+    expect(content).toContain('elif [ "$_SO_BACKEND" = "gemini" ]');
+    expect(content).toContain('GEMINI_READY');
   });
 
   test('codex/SKILL.md contains cross-model comparison', () => {
@@ -1315,9 +1316,10 @@ describe('Codex skill', () => {
     expect(content).toContain('gstack-review-log');
   });
 
-  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
+  test('codex/SKILL.md uses second-opinion dispatcher, not hardcoded binary paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('which codex');
+    expect(content).toContain('gstack-second-opinion detect');
+    expect(content).toContain('$GSTACK_BIN/gstack-second-opinion');
     expect(content).not.toContain('/opt/homebrew/bin/codex');
   });
 
@@ -1335,23 +1337,23 @@ describe('Codex skill', () => {
   test('adversarial review in /review always runs both passes', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Adversarial review (always-on)');
-    // Always-on: both Claude and Codex adversarial
+    // Always-on: Claude plus configured second opinion CLI when available
     expect(content).toContain('Claude adversarial subagent (always runs)');
-    expect(content).toContain('Codex adversarial challenge (always runs when available)');
+    expect(content).toContain('Second opinion adversarial');
     // Claude adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
-    // Codex availability check
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
-    // OLD_CFG only gates Codex, not Claude
-    expect(content).toContain('skip Codex passes only');
+    // Second opinion availability check
+    expect(content).toContain('SO_AVAILABLE');
+    // OLD_CFG only gates the second opinion CLI, not Claude
+    expect(content).toContain('skip second opinion CLI passes only');
     // Review log
     expect(content).toContain('adversarial-review');
-    expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('--effort high');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
     // Large diff structured review still gated
-    expect(content).toContain('Codex structured review (large diffs only');
+    expect(content).toContain('Second opinion structured review (large diffs only');
     expect(content).toContain('200');
   });
 
@@ -1359,7 +1361,7 @@ describe('Codex skill', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Adversarial review (always-on)');
     expect(content).toContain('adversarial-review');
-    expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('--effort high');
     expect(content).toContain('Investigate and fix');
     expect(content).toContain('Claude adversarial subagent (always runs)');
   });

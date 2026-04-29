@@ -986,8 +986,8 @@ If user chooses B, skip this step and continue.
 
 **Check second opinion availability:**
 ```bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 ```
 
@@ -996,7 +996,7 @@ _SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
 1. **Second opinion design voice** (via Bash):
 ```bash
 TMPERR_DESIGN=$(mktemp /tmp/so-design-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "Given this product context, propose a complete design direction:
+$GSTACK_BIN/gstack-second-opinion exec "Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent

@@ -1451,7 +1451,7 @@ If no documentation files exist, skip this step silently.
 
 ## Step 5.7: Adversarial review (always-on)
 
-Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+Every diff gets adversarial review from Claude plus the configured second opinion CLI when available. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size and tool availability:**
 
@@ -1459,17 +1459,17 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 # Respect old opt-out
-OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+OLD_CFG=$($GSTACK_BIN/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "BACKEND: $_SO_BACKEND ($_SO_NAME)"
 echo "OLD_CFG: ${OLD_CFG:-not_set}"
 ```
 
-If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
+If `OLD_CFG` is `disabled`: skip second opinion CLI passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 
 **Auto-select tier based on diff size:**
 - **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
@@ -1497,7 +1497,7 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 ```bash
 TMPERR_ADV=$(mktemp /tmp/so-adv-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." --effort high --web-search 2>"$TMPERR_ADV"
+$GSTACK_BIN/gstack-second-opinion exec "Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." --effort high --web-search 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -1514,7 +1514,7 @@ Present the full output verbatim. This is informational — it never blocks ship
 
 On any error, fall back to the Claude adversarial subagent automatically.
 
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
+**Claude adversarial subagent** (fallback when the second opinion CLI is unavailable or errored):
 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
@@ -1535,14 +1535,14 @@ Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOU
 
 ---
 
-### Codex structured review (large diffs only, 200+ lines)
+### Second opinion structured review (large diffs only, 200+ lines)
 
-If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
+If `DIFF_TOTAL >= 200` AND a second opinion CLI is available AND `OLD_CFG` is NOT `disabled`:
 
 **1. Second opinion structured review (if available):**
 ```bash
 TMPERR=$(mktemp /tmp/so-review-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
+$GSTACK_BIN/gstack-second-opinion review --base <base> --effort high --web-search 2>"$TMPERR"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `$_SO_NAME SAYS (code review):` header.
@@ -1558,11 +1558,11 @@ B) Continue — review will still complete
 
 If A: address the findings. Re-run the second opinion review to verify.
 
-Read stderr for errors (same error handling as Codex adversarial above).
+Read stderr for errors (same error handling as the second opinion adversarial pass above).
 
 After stderr: `rm -f "$TMPERR"`
 
-If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
+If `DIFF_TOTAL < 200`: skip this section silently. The Claude + second opinion adversarial passes provide sufficient coverage for smaller diffs.
 
 **3. Second opinion adversarial challenge (if available):** Run `gstack-second-opinion exec` with the adversarial prompt (same as medium tier).
 

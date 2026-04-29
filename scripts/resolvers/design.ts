@@ -10,8 +10,8 @@ export function generateDesignReviewLite(ctx: TemplateContext): string {
 7. **Second opinion design voice** (optional, automatic if available):
 
 \`\`\`bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
@@ -19,7 +19,7 @@ If a second opinion CLI is available, run a lightweight design check on the diff
 
 \`\`\`bash
 TMPERR_DRL=$(mktemp /tmp/so-drl-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." --effort high --web-search 2>"$TMPERR_DRL"
+$GSTACK_BIN/gstack-second-opinion exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." --effort high --web-search 2>"$TMPERR_DRL"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -513,8 +513,8 @@ The screenshot file at \`/tmp/gstack-sketch.png\` can be referenced by downstrea
 After the wireframe is approved, offer outside design perspectives:
 
 \`\`\`bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
@@ -529,7 +529,7 @@ If user chooses A, launch both voices simultaneously:
 1. **Second opinion** (via Bash):
 \`\`\`bash
 TMPERR_SKETCH=$(mktemp /tmp/so-sketch-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
+$GSTACK_BIN/gstack-second-opinion exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." --effort medium --web-search 2>"$TMPERR_SKETCH"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
 
@@ -690,8 +690,8 @@ ${optInSection}
 
 **Check second opinion availability:**
 \`\`\`bash
-_SO_BACKEND=$(~/.claude/skills/gstack/bin/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
-_SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
+_SO_BACKEND=$($GSTACK_BIN/gstack-second-opinion detect 2>/dev/null | grep BACKEND | awk '{print $2}')
+_SO_NAME=$($GSTACK_BIN/gstack-second-opinion name 2>/dev/null)
 [ "$_SO_BACKEND" != "none" ] && echo "SO_AVAILABLE" || echo "SO_NOT_AVAILABLE"
 \`\`\`
 
@@ -700,7 +700,7 @@ _SO_NAME=$(~/.claude/skills/gstack/bin/gstack-second-opinion name 2>/dev/null)
 1. **Second opinion design voice** (via Bash):
 \`\`\`bash
 TMPERR_DESIGN=$(mktemp /tmp/so-design-XXXXXXXX)
-~/.claude/skills/gstack/bin/gstack-second-opinion exec "${escapedCodexPrompt}" --effort ${reasoningEffort} --web-search 2>"$TMPERR_DESIGN"
+$GSTACK_BIN/gstack-second-opinion exec "${escapedCodexPrompt}" --effort ${reasoningEffort} --web-search 2>"$TMPERR_DESIGN"
 \`\`\`
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
